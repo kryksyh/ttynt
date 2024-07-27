@@ -30,37 +30,62 @@ fn main() {
 }
 
 /// Create a vector of regex patterns and associated colors
-fn create_patterns_and_colors(patterns: &[String], case_sensitive: bool) -> Result<Vec<(Regex, Color)>, regex::Error> {
-    let colors = vec![Color::Red, Color::Yellow, Color::Blue, Color::Green, Color::Magenta, Color::Cyan];
+fn create_patterns_and_colors(
+    patterns: &[String],
+    case_sensitive: bool,
+) -> Result<Vec<(Regex, Color)>, regex::Error> {
+    let colors = [
+        Color::Red,
+        Color::Yellow,
+        Color::Blue,
+        Color::Green,
+        Color::Magenta,
+        Color::Cyan,
+    ];
 
-    patterns.iter().enumerate().map(|(i, pattern)| {
-        let mut regex_builder = RegexBuilder::new(pattern);
-        if !case_sensitive {
-            regex_builder.case_insensitive(true);
-        }
-        let regex = regex_builder.build().map_err(|e| {
-            eprintln!("Error compiling pattern '{}': {}", pattern, e);
-            e
-        })?;
-        let color = colors[i % colors.len()];
-        Ok((regex, color))
-    }).collect()
+    patterns
+        .iter()
+        .enumerate()
+        .map(|(i, pattern)| {
+            let mut regex_builder = RegexBuilder::new(pattern);
+            if !case_sensitive {
+                regex_builder.case_insensitive(true);
+            }
+            let regex = regex_builder.build().map_err(|e| {
+                eprintln!("Error compiling pattern '{}': {}", pattern, e);
+                e
+            })?;
+            let color = colors[i % colors.len()];
+            Ok((regex, color))
+        })
+        .collect()
 }
 
 /// Process input lines from the given reader and apply color based on patterns
-fn process_input<R: BufRead, W: WriteColor>(args: &Cli, patterns: &[(Regex, Color)], stdout: &mut W, reader: R) {
+fn process_input<R: BufRead, W: WriteColor>(
+    args: &Cli,
+    patterns: &[(Regex, Color)],
+    stdout: &mut W,
+    reader: R,
+) {
     for line in reader.lines() {
         match line {
             Ok(line) => {
-                apply_color(&line, &patterns, args.whole_line, args.background, stdout);
-            },
+                apply_color(&line, patterns, args.whole_line, args.background, stdout);
+            }
             Err(e) => eprintln!("Error reading line: {}", e),
         }
     }
 }
 
 /// Apply color to matched parts of the line
-fn apply_color<W: WriteColor>(line: &str, patterns: &[(Regex, Color)], whole_line: bool, background: bool, stdout: &mut W) -> bool {
+fn apply_color<W: WriteColor>(
+    line: &str,
+    patterns: &[(Regex, Color)],
+    whole_line: bool,
+    background: bool,
+    stdout: &mut W,
+) -> bool {
     let mut matches: Vec<(usize, usize, Color)> = Vec::new();
 
     for (regex, color) in patterns {
@@ -70,7 +95,7 @@ fn apply_color<W: WriteColor>(line: &str, patterns: &[(Regex, Color)], whole_lin
     }
 
     if matches.is_empty() {
-        writeln!(stdout, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));  // Ensure the line is printed if no matches
+        writeln!(stdout, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e)); // Ensure the line is printed if no matches
         return false;
     }
 
@@ -81,35 +106,44 @@ fn apply_color<W: WriteColor>(line: &str, patterns: &[(Regex, Color)], whole_lin
         let mut color_spec = ColorSpec::new();
         if background {
             color_spec.set_bg(Some(color));
-        }
-        else {
+        } else {
             color_spec.set_fg(Some(color));
         }
-        stdout.set_color(&color_spec).unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
+        stdout
+            .set_color(&color_spec)
+            .unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
         write!(stdout, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
-        stdout.reset().unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
-        writeln!(stdout, "").unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+        stdout
+            .reset()
+            .unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
+        writeln!(stdout).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
     } else {
         let mut last_end = 0;
         for (start, end, color) in matches {
             if start >= last_end {
-                write!(stdout, "{}", &line[last_end..start]).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+                write!(stdout, "{}", &line[last_end..start])
+                    .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
                 let mut color_spec = ColorSpec::new();
                 if background {
                     color_spec.set_bg(Some(color));
-                }
-                else {
+                } else {
                     color_spec.set_fg(Some(color));
                 }
-                stdout.set_color(&color_spec).unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
-                write!(stdout, "{}", &line[start..end]).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
-                stdout.reset().unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
+                stdout
+                    .set_color(&color_spec)
+                    .unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
+                write!(stdout, "{}", &line[start..end])
+                    .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+                stdout
+                    .reset()
+                    .unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
                 last_end = end;
             }
         }
-        writeln!(stdout, "{}", &line[last_end..]).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+        writeln!(stdout, "{}", &line[last_end..])
+            .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
     }
-    
+
     true
 }
 
