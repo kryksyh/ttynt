@@ -1,20 +1,22 @@
 use regex::Regex;
 use regex::RegexBuilder;
+use std::io::Write;
 use std::io::{self, BufRead};
 use structopt::StructOpt;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 #[derive(StructOpt)]
 struct Cli {
+    #[structopt(help = "Patterns to search for in the input")]
     patterns: Vec<String>,
 
-    #[structopt(short = "l", long)]
+    #[structopt(short = "l", long, help = "Color the whole line")]
     whole_line: bool,
 
-    #[structopt(short = "c", long)]
+    #[structopt(short = "c", long, help = "Case-sensitive search")]
     case_sensitive: bool,
 
-    #[structopt(short = "b", long)]
+    #[structopt(short = "b", long, help = "Color the background")]
     background: bool,
 }
 
@@ -23,14 +25,13 @@ fn main() {
 
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
-    match create_patterns_and_colors(&args.patterns, args.case_sensitive) {
+    match assign_color_to_pattern(&args.patterns, args.case_sensitive) {
         Ok(patterns) => process_input(&args, &patterns, &mut stdout, io::stdin().lock()),
         Err(e) => eprintln!("Error creating patterns: {}", e),
     }
 }
 
-/// Create a vector of regex patterns and associated colors
-fn create_patterns_and_colors(
+fn assign_color_to_pattern(
     patterns: &[String],
     case_sensitive: bool,
 ) -> Result<Vec<(Regex, Color)>, regex::Error> {
@@ -41,6 +42,12 @@ fn create_patterns_and_colors(
         Color::Green,
         Color::Magenta,
         Color::Cyan,
+        Color::Ansi256(49),  // Light Cyan
+        Color::Ansi256(220), // Light Yellow
+        Color::Ansi256(51),  // Light Blue
+        Color::Ansi256(106), // Yellow Green
+        Color::Ansi256(207), // Pink
+        Color::Ansi256(165), // Purple
     ];
 
     patterns
@@ -61,30 +68,46 @@ fn create_patterns_and_colors(
         .collect()
 }
 
-/// Process input lines from the given reader and apply color based on patterns
+fn write<W: Write>(out: &mut W, line: &str) {
+    write!(out, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+}
+
+fn write_line<W: Write>(out: &mut W, line: &str) {
+    writeln!(out, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+}
+
+fn set_color<W: WriteColor>(out: &mut W, color_spec: &ColorSpec) {
+    out.set_color(color_spec)
+        .unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
+}
+
+fn reset_color<W: WriteColor>(out: &mut W) {
+    out.reset()
+        .unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
+}
+
 fn process_input<R: BufRead, W: WriteColor>(
     args: &Cli,
     patterns: &[(Regex, Color)],
-    stdout: &mut W,
+    out: &mut W,
     reader: R,
 ) {
     for line in reader.lines() {
         match line {
             Ok(line) => {
-                apply_color(&line, patterns, args.whole_line, args.background, stdout);
+                apply_color(&line, patterns, args.whole_line, args.background, out);
             }
             Err(e) => eprintln!("Error reading line: {}", e),
         }
     }
 }
 
-/// Apply color to matched parts of the line
 fn apply_color<W: WriteColor>(
     line: &str,
     patterns: &[(Regex, Color)],
     whole_line: bool,
     background: bool,
-    stdout: &mut W,
+    out: &mut W,
 ) -> bool {
     let mut matches: Vec<(usize, usize, Color)> = Vec::new();
 
@@ -95,7 +118,7 @@ fn apply_color<W: WriteColor>(
     }
 
     if matches.is_empty() {
-        writeln!(stdout, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e)); // Ensure the line is printed if no matches
+        write_line(out, line);
         return false;
     }
 
@@ -109,39 +132,30 @@ fn apply_color<W: WriteColor>(
         } else {
             color_spec.set_fg(Some(color));
         }
-        stdout
-            .set_color(&color_spec)
-            .unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
-        write!(stdout, "{}", line).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
-        stdout
-            .reset()
-            .unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
-        writeln!(stdout).unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+
+        set_color(out, &color_spec);
+        write(out, line);
+        reset_color(out);
+        write_line(out, "");
     } else {
         let mut last_end = 0;
         for (start, end, color) in matches {
             if start >= last_end {
-                write!(stdout, "{}", &line[last_end..start])
-                    .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
                 let mut color_spec = ColorSpec::new();
                 if background {
                     color_spec.set_bg(Some(color));
                 } else {
                     color_spec.set_fg(Some(color));
                 }
-                stdout
-                    .set_color(&color_spec)
-                    .unwrap_or_else(|e| eprintln!("Error setting color: {}", e));
-                write!(stdout, "{}", &line[start..end])
-                    .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
-                stdout
-                    .reset()
-                    .unwrap_or_else(|e| eprintln!("Error resetting color: {}", e));
+
+                write(out, &line[last_end..start]);
+                set_color(out, &color_spec);
+                write(out, &line[start..end]);
+                reset_color(out);
                 last_end = end;
             }
         }
-        writeln!(stdout, "{}", &line[last_end..])
-            .unwrap_or_else(|e| eprintln!("Error writing line: {}", e));
+        write_line(out, &line[last_end..]);
     }
 
     true
@@ -164,9 +178,9 @@ mod tests {
     }
 
     #[test]
-    fn test_create_patterns_and_colors() {
+    fn test_assign_color_to_pattern() {
         let patterns = vec!["foo".to_string(), "bar".to_string()];
-        let result = create_patterns_and_colors(&patterns, true);
+        let result = assign_color_to_pattern(&patterns, true);
         assert!(result.is_ok());
         let patterns = result.unwrap();
         assert_eq!(patterns.len(), 2);
@@ -175,7 +189,7 @@ mod tests {
     #[test]
     fn test_apply_color_no_match() {
         let (_writer, mut buffer) = create_test_writer();
-        let patterns = create_patterns_and_colors(&["foo".to_string()], true).unwrap();
+        let patterns = assign_color_to_pattern(&["foo".to_string()], true).unwrap();
         let result = apply_color("bar", &patterns, false, false, &mut buffer);
         assert!(!result);
         assert_eq!(get_buffer_contents(buffer), "bar\n");
@@ -184,7 +198,7 @@ mod tests {
     #[test]
     fn test_apply_color_match() {
         let (_writer, mut buffer) = create_test_writer();
-        let patterns = create_patterns_and_colors(&["foo".to_string()], true).unwrap();
+        let patterns = assign_color_to_pattern(&["foo".to_string()], true).unwrap();
         let result = apply_color("foo", &patterns, false, false, &mut buffer);
         assert!(result);
         assert!(get_buffer_contents(buffer).contains("foo"));
@@ -193,7 +207,7 @@ mod tests {
     #[test]
     fn test_apply_color_match_whole_line() {
         let (_writer, mut buffer) = create_test_writer();
-        let patterns = create_patterns_and_colors(&["foo".to_string()], true).unwrap();
+        let patterns = assign_color_to_pattern(&["foo".to_string()], true).unwrap();
         let result = apply_color("foo", &patterns, true, false, &mut buffer);
         assert!(result);
         assert!(get_buffer_contents(buffer).contains("foo"));
@@ -201,14 +215,14 @@ mod tests {
 
     #[test]
     fn test_process_input() {
-        let input = b"foo\nbar\nbaz\n";
+        let input = b"foo\nbar\nbaz\nhey foo hoy bar huy\n";
         let args = Cli {
             patterns: vec!["foo".to_string()],
             whole_line: false,
             case_sensitive: true,
             background: false,
         };
-        let patterns = create_patterns_and_colors(&args.patterns, args.case_sensitive).unwrap();
+        let patterns = assign_color_to_pattern(&args.patterns, args.case_sensitive).unwrap();
         let (_writer, mut buffer) = create_test_writer();
         let cursor = Cursor::new(input);
         process_input(&args, &patterns, &mut buffer, cursor);
@@ -216,8 +230,11 @@ mod tests {
         assert!(result.contains("foo"));
         assert!(result.contains("bar"));
         assert!(result.contains("baz"));
-        assert!(result.matches("foo").count() == 1);
-        assert!(result.matches("bar").count() == 1);
+        assert!(result.contains("hey"));
+        assert!(result.contains("hoy"));
+        assert!(result.contains("huy"));
+        assert!(result.matches("foo").count() == 2);
+        assert!(result.matches("bar").count() == 2);
         assert!(result.matches("baz").count() == 1);
     }
 }

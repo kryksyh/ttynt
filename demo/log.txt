@@ -1,0 +1,6 @@
+11:49:28 - INFO - Connection established
+11:49:28 - WARNING - High memory usage detected
+11:49:28 - WARNING - Deprecated API usage detected
+11:49:28 - INFO - Configuration loaded
+11:49:28 - ERROR - Failed to connect to database
+11:49:28 - WARNING - Deprecated API usage detected
